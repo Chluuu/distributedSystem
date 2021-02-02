@@ -84,6 +84,7 @@ type Raft struct {
 
 	identity	ID
 
+
 	electionTimer *time.Timer
 	appendEntriesTimers []*time.Timer
 }
@@ -260,14 +261,14 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 			continue
 		case ok:=<-ch:
 			if ok{
-				ss:=0
 				reply.Term=tmpr.Term
 				reply.VoteGranted=tmpr.VoteGranted
+				/*
 				if tmpr.VoteGranted==true {
 					ss=1
 				}
 				fmt.Printf("peer %d  voted %d\n",server,ss)
-
+				*/	
 				return ok
 			}else{
 				continue
@@ -296,9 +297,29 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	index := -1
 	term := -1
 	isLeader := true
-
+	
+	log:=LogEntry{
+		Command: command,
+		Term:	 rf.currentTerm,		
+	}
 	// Your code here (2B).
-
+	if rf.identity!=Leader{
+		isLeader=false
+		return index, term, isLeader
+	}else{
+		rf.mu.Lock()
+		rf.log=append(rf.log,log)
+		for i,_:=range rf.peers{
+			if i==rf.me{
+				continue
+			}
+			rf.matchIndex[index]+=1
+		}
+		rf.commitIndex+=1
+		index=rf.commitIndex
+		term=rf.currentTerm 
+		rf.mu.Unlock()
+	}
 
 	return index, term, isLeader
 }
@@ -428,6 +449,13 @@ func(rf *Raft) startElection(){
 		rf.identity=Leader
 		rf.electionTimer.Reset(randElectionTimeout())
 		rf.ResetHeartBeatTimers()
+		for index,_:=range rf.peers{
+			if index==rf.me{
+				continue
+			}
+			rf.nextIndex[index]=len(rf.log)+1
+			rf.matchIndex[index]=0
+		}
 		rf.mu.Unlock()
 		return 
 	}
@@ -460,7 +488,14 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.currentTerm=0
 	rf.votedFor=-1
 
+	rf.nextIndex=make([]int,len(rf.peers))
+	rf.matchIndex=make([]int,len(rf.peers))
+
+	emptyLog:=LogEntry{}
+	rf.log=append(rf.log,emptyLog)
 	// Your initialization code here (2A, 2B, 2C).
+	rf.commitIndex=0
+	rf.lastApplied=0
 	rf.electionTimer=time.NewTimer(randElectionTimeout())
 	rf.appendEntriesTimers=make([]*time.Timer,len(rf.peers))
 	for i,_:=range rf.appendEntriesTimers{
@@ -469,7 +504,6 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	// initialize from state persisted before a crash
 	//rf.readPersist(persister.ReadRaftState())
 	fmt.Printf("make peer %d\n",rf.me)
-
 	go func(){
 		for {
 			select{
@@ -478,23 +512,57 @@ func Make(peers []*labrpc.ClientEnd, me int,
 			}
 		}
 	}()
+	apdentryNum:=1
+	
+	apdentryCh:=make([]chan bool,len(rf.peers))
 	for index,_:=range rf.peers{
-
 		if index==rf.me{
 			continue
 		}
-		go func(index int){
+		apdentryCh[index]=make(chan bool)
+		fmt.Printf("index1 %d\n",index)
+		go func(index int,appdentry []chan bool){
 			for {
 				select{
 				case <-rf.appendEntriesTimers[index].C:
-					rf.appendEntriestoPeer(index)
+					fmt.Printf("index %d\n",index)
+					apdentryCh[index]<-rf.appendEntriestoPeer(index)
 				default:
 				}
 			}
-		}(index)
+		}(index,apdentryCh)
 		}
-	
-
-
+	go func(){
+	for !rf.killed(){
+		i:=1
+		minCommit:=rf.commitIndex
+		for {
+			iscommit:=<-apdentryCh[i-1]
+			i+=1
+			if iscommit {
+				apdentryNum+=1
+				if minCommit>rf.nextIndex[i-1]-1{
+					minCommit=rf.nextIndex[i-1]-1
+				}
+			}
+			if i == len(rf.peers) || apdentryNum > len(rf.peers)/2 || i-apdentryNum > len(rf.peers)/2 {
+				break
+			}
+		}
+		if apdentryNum > len(rf.peers)/2{
+			rf.mu.Lock()
+			for i:=rf.lastApplied+1;i<=minCommit;i+=1{
+				msg:=ApplyMsg{
+					CommandValid: true,
+					Command:	  rf.log[i].Command,
+					CommandIndex: i,
+				}
+				applyCh<-msg
+			}
+			rf.lastApplied=minCommit
+			rf.mu.Unlock()
+	}
+	}
+}()
 	return rf
 }
