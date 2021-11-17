@@ -1,10 +1,10 @@
 # **Lab1：MapReduce**
 
-1. ## **实验说明**
+## **1 实验说明**
 
 参照[MapReduce文章](http://research.google.com/archive/mapreduce-osdi04.pdf)实现对文件的高效并行处理，本实验按照[MIT 6.824 2020spring](http://nil.csail.mit.edu/6.824/2020/schedule.html)课程Lab1的各项要求完成，使用便于并发程序设计的golang作为开发语言，其中rpc相关功能依赖golang包含的net/rpc库实现。
 
-1. ## **实现方法**
+## **2 实现方法**
 
 ### **2.1 实验环境**
 
@@ -18,7 +18,8 @@
 
 本实验通过完成master.go,worker.go,rpc.go三个文件实现了MapReduce框架，其中master.go文件主要包括Master Machine所要存储的数据结构和需要运行的方法，worker.go文件主要包括Worker Machine需要存储的数据和运行的方法，rpc.go主要存储Master Machine远程调用Master Machine的方法是需要的参数结构。Worker通过rpc方式远程调用Master方法，使这些方法在Master上运行，其中Reply参数要求是指针类型，这样在运行结束后Reply中会存储希望Master回馈的内容，三者关系如下图所示：
 
-​                 ![img](https://docimg7.docs.qq.com/image/4ERnFWghOH2mxUw2f_Gyjw.png?w=746&h=464)        
+![image](https://user-images.githubusercontent.com/28896013/142205103-344eea28-8028-4bf3-9bee-cd94ebff8698.png)
+
 
 在Master.go中定义Task结构，Master分配的任务和Worker需要执行的任务参数都包含在这个结构内
 
